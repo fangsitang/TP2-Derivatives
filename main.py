@@ -354,8 +354,9 @@ options_df = pd.DataFrame({
 print(options_df)
 
 
+
+
 import numpy as np
-import pandas as pd
 
 # Given parameters:
 num_paths = 100000
@@ -367,8 +368,11 @@ omega = 0.000006
 alpha = 0.12191
 beta = 0.771516
 gamma = -0.052665
-lam = 0.097762
-initial_variance = 0.0001  # Initial guess for variance (adjust as necessary)
+lam = 0.097762  # lambda (adjustment term)
+initial_variance = log_returns.iloc[0] ** 2  # Initial guess for variance (adjust as necessary)
+
+# Calculate gamma* = gamma + lambda
+gamma_star = gamma + lam
 
 # Initialize arrays for simulation
 simulated_prices = np.zeros((num_paths, num_days))
@@ -377,20 +381,21 @@ simulated_prices[:, 0] = S_0  # Start from the initial spot price
 # Simulate paths
 h_sim = np.full(num_paths, initial_variance)  # Initialize variance for all paths
 z_sim = np.zeros(num_paths)  # Residuals for all paths
+epsilon_star_sim = np.zeros(num_paths)  # Residuals for epsilon_star
 
 # Simulate 100,000 paths over 63 days
 for t in range(1, num_days):
-    # Simulate shocks (z_t)
-    z_sim = np.random.normal(0, 1, num_paths)
+    # Simulate shocks (epsilon_star_t under Q-measure)
+    epsilon_star_sim = np.random.normal(0, 1, num_paths)
 
-    # Update variance using NGARCH(1,1) model
-    h_sim = omega + alpha * h_sim * (z_sim - gamma)**2 + beta * h_sim
+    # Update variance using NGARCH(1,1) model under Q-measure
+    h_sim = omega + alpha * h_sim * (epsilon_star_sim - gamma_star * np.sqrt(h_sim))**2 + beta * h_sim
     h_sim = np.maximum(h_sim, 1e-8)  # Prevent non-positive variance
 
-    # Update returns (under risk-neutral measure, only include the risk-free rate)
-    r_sim = daily_rf_rate - 0.5 * h_sim + np.sqrt(h_sim) * z_sim
+    # Update returns using Q-measure dynamics
+    r_sim = daily_rf_rate - 0.5 * h_sim + np.sqrt(h_sim) * epsilon_star_sim
 
-    # Update prices using the risk-neutral return (rf as the drift term)
+    # Update prices using the Q-measure return process
     simulated_prices[:, t] = simulated_prices[:, t-1] * np.exp(r_sim)
 
 # Evaluate European Call Options at t = 0
@@ -410,7 +415,6 @@ for K in strikes:
 print("Strike Price | European Call Price")
 for strike, price in zip(strikes, call_prices_at_t0):
     print(f"{strike:12} | {price:20.6f}")
-
 
 
 ### 4) ---------- PLOTTING VOLATILITY SMILE ----------
