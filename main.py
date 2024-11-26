@@ -314,25 +314,61 @@ print(f"Sample: {sample_volatility:.6f}")
 ### 3) ------------------------------------
 np.random.seed(777)  # For reproducibility
 
-# Black-Scholes formula to calculate the European call option price
-def black_scholes_call(S, K, T, r, sigma):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+# Given parameters
+spot_price = 24789.28  # S_0, the spot price of the index
+risk_free_rate_annual = 2.75 / 100  # 2.75% annual risk-free rate
+expiry_days = 63  # Days to expiry
+daily_rf_rate = risk_free_rate_annual / 365  # Convert to daily risk-free rate
+sample_volatility = log_returns.std()  # Sample volatility
+annualized_volatility = sample_volatility * np.sqrt(252)  # Annualized volatility
+
+# Strike prices (from 23,000 to 28,000 with increments of 100)
+strikes = np.arange(23000, 28001, 100)
+
+# Time to maturity in years (63 days)
+T = expiry_days / 252
+
+
+# Black-Scholes formula for call option price
+def black_scholes_call(S0, K, T, r, sigma):
+    d1 = (np.log(S0 / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
-    return S * stats.norm.cdf(d1) - K * np.exp(-r * T) * stats.norm.cdf(d2)
 
-# Function to calculate implied volatility using fsolve
-def implied_volatility_call(S, K, T, r, market_price):
-    # Objective function to minimize (difference between market price and Black-Scholes price)
-    objective = lambda sigma: black_scholes_call(S, K, T, r, sigma) - market_price
-    # Use fsolve to find the implied volatility
-    implied_vol = fsolve(objective, 0.2)[0]  # Initial guess is 0.2
-    return implied_vol
+    # Call price
+    call_price = S0 * st.norm.cdf(d1) - K * np.exp(-r * T) * st.norm.cdf(d2)
+    return call_price
 
-# Parameters
+
+# Calculate call prices for each strike
+call_prices = []
+for K in strikes:
+    call_price = black_scholes_call(spot_price, K, T, daily_rf_rate, annualized_volatility)
+    call_prices.append(call_price)
+
+# Store the results in a DataFrame
+options_df = pd.DataFrame({
+    'Strike': strikes,
+    'Option Price': call_prices
+})
+
+print(options_df)
+
+
+import numpy as np
+import pandas as pd
+
+# Given parameters:
 num_paths = 100000
 num_days = 63
 strikes = np.arange(23000, 28001, 100)  # Strike prices from 23,000 to 28,000
-S_0 = data.iloc[-1, 0] # Set observed adjusted close as S_0
+S_0 = data.iloc[-1, 0]  # Set observed adjusted close as S_0
+daily_rf_rate = 0.0275 / 365  # Daily risk-free rate (2.75% annualized)
+omega = 0.000006
+alpha = 0.12191
+beta = 0.771516
+gamma = -0.052665
+lam = 0.097762
+initial_variance = 0.0001  # Initial guess for variance (adjust as necessary)
 
 # Initialize arrays for simulation
 simulated_prices = np.zeros((num_paths, num_days))
@@ -342,6 +378,7 @@ simulated_prices[:, 0] = S_0  # Start from the initial spot price
 h_sim = np.full(num_paths, initial_variance)  # Initialize variance for all paths
 z_sim = np.zeros(num_paths)  # Residuals for all paths
 
+# Simulate 100,000 paths over 63 days
 for t in range(1, num_days):
     # Simulate shocks (z_t)
     z_sim = np.random.normal(0, 1, num_paths)
@@ -350,10 +387,10 @@ for t in range(1, num_days):
     h_sim = omega + alpha * h_sim * (z_sim - gamma)**2 + beta * h_sim
     h_sim = np.maximum(h_sim, 1e-8)  # Prevent non-positive variance
 
-    # Update returns
-    r_sim = daily_rf_rate + lam * np.sqrt(h_sim) - 0.5 * h_sim + np.sqrt(h_sim) * z_sim
+    # Update returns (under risk-neutral measure, only include the risk-free rate)
+    r_sim = daily_rf_rate - 0.5 * h_sim + np.sqrt(h_sim) * z_sim
 
-    # Update prices
+    # Update prices using the risk-neutral return (rf as the drift term)
     simulated_prices[:, t] = simulated_prices[:, t-1] * np.exp(r_sim)
 
 # Evaluate European Call Options at t = 0
@@ -373,6 +410,10 @@ for K in strikes:
 print("Strike Price | European Call Price")
 for strike, price in zip(strikes, call_prices_at_t0):
     print(f"{strike:12} | {price:20.6f}")
+
+
+
+### 4) ---------- PLOTTING VOLATILITY SMILE ----------
 
 # Calculate moneyness S_0 / K for each strike price
 moneyness = S_0 / strikes
